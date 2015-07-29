@@ -1,0 +1,26 @@
+{
+  "name": "test-plugin",
+  "version": "1.0.0",
+  "description": "just a test plugin",
+  "repository": {
+    "type": "git",
+    "url": "http://website.git"
+  },
+  "scripts": {
+    "postinstall": "node -e 'console.log(\"congratulations, you won!!!!!!!!!!!!!!!\")'"
+  },
+  "dependencies": {
+    "bluebird": "^2.9.30",
+    "elastic.js": "^1.2.0",
+    "elasticsearch": "^5.0.0",
+    "joi": "^6.4.3",
+    "lodash": "^3.9.3",
+    "wreck": "^5.6.0"
+  },
+  "devDependencies": {
+    "grunt": "^0.4.5",
+    "grunt-clean": "^0.4.0",
+    "grunt-less": "^0.1.7"
+  },
+  "license": "Apache-2.0"
+}

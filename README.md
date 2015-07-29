@@ -1,2 +1,1 @@
-# kibana-cf_authentication
-Authenticate with Cloud Foundry UAA via OAuth2
+I am a test plugin
