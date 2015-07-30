@@ -15,7 +15,10 @@
     "elasticsearch": "^5.0.0",
     "joi": "^6.4.3",
     "lodash": "^3.9.3",
-    "wreck": "^5.6.0"
+    "wreck": "^5.6.0",
+    "request": "^2.40.0",
+    "bell": "4.0.0",
+    "hapi-auth-cookie": "3.0.1"
   },
   "devDependencies": {
     "grunt": "^0.4.5",
