@@ -57,7 +57,9 @@ module.exports = function (kibana) {
 
     }).catch(function (error) {
       console.log('ERROR fetching CF info from ' + cfInfoUri + ' : ' + error);
-      return Joi.object().default();
+      return Joi.object({
+        enabled: Joi.boolean().default(true)
+      }).default();
     });
 
   },
