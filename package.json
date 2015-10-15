@@ -1,13 +1,10 @@
 {
-  "name": "test-plugin",
-  "version": "1.0.0",
-  "description": "just a test plugin",
+  "name": "authentication",
+  "version": "0.6.0",
+  "description": "Integrations Kibana into CF's OAuth 2 authentication mechanism",
   "repository": {
     "type": "git",
-    "url": "http://website.git"
-  },
-  "scripts": {
-    "postinstall": "node -e 'console.log(\"congratulations, you won!!!!!!!!!!!!!!!\")'"
+    "url": "http://guthub.com/stayup/kibana-cf_authentication.git"
   },
   "dependencies": {
     "bluebird": "^2.9.30",
