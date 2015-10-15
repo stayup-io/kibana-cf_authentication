@@ -45,6 +45,7 @@ module.exports = function (kibana) {
       var cf_info = JSON.parse(body);
 
       return Joi.object({
+        enabled: Joi.boolean().default(true),
         client_id: Joi.string().default(client_id),
         client_secret: Joi.string().default(client_secret),
         skip_ssl_validation: Joi.boolean().default(skip_ssl_validation),
@@ -110,7 +111,7 @@ module.exports = function (kibana) {
         password: '397hkjhdhshs3uy02hjsdfnlskdfio3', //Password used for encryption
         clientId: config.get('authentication.client_id'),
         clientSecret: config.get('authentication.client_secret'),
-        forceHttps: true   
+        forceHttps: true
       });
 
       server.auth.default('uaa-cookie');
