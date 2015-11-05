@@ -53,6 +53,7 @@ module.exports = function (kibana) {
         logout_uri: Joi.string().default(cf_info.authorization_endpoint + '/logout.do'),
         token_uri: Joi.string().default(cf_info.token_endpoint + '/oauth/token'),
         account_info_uri: Joi.string().default(cf_info.token_endpoint + '/userinfo')
+        organizations_uri: Joi.string().default(cloudFoundryApiUri + '/v2/organizations'),
       }).default();
 
     }).catch(function (error) {
@@ -103,7 +104,12 @@ module.exports = function (kibana) {
               email: profile.email,
               raw: profile
             };
-            return callback();
+
+            get(config.get('authentication.organizations_uri'), null, function(orgs) {
+              server.log(['debug', 'authentication', 'orgs'], JSON.stringify(orgs));
+              credentials.organizations = orgs.resources.map(function(resource) { return resource.entity.name; });
+              return callback();
+            });
           });
         }
       };
