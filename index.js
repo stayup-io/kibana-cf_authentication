@@ -54,6 +54,7 @@ module.exports = function (kibana) {
         token_uri: Joi.string().default(cf_info.token_endpoint + '/oauth/token'),
         account_info_uri: Joi.string().default(cf_info.token_endpoint + '/userinfo'),
         organizations_uri: Joi.string().default(cloudFoundryApiUri + '/v2/organizations'),
+        spaces_uri: Joi.string().default(cloudFoundryApiUri + '/v2/spaces'),
       }).default();
 
     }).catch(function (error) {
@@ -108,7 +109,12 @@ module.exports = function (kibana) {
             get(config.get('authentication.organizations_uri'), null, function(orgs) {
               server.log(['debug', 'authentication', 'orgs'], JSON.stringify(orgs));
               credentials.organizations = orgs.resources.map(function(resource) { return resource.entity.name; });
-              return callback();
+
+              get(config.get('authentication.spaces_uri'), null, function(spaces) {
+                server.log(['debug', 'authentication', 'orgs'], JSON.stringify(spaces));
+                credentials.spaceIds = spaces.resources.map(function(resource) { return resource.metadata.guid; });
+                return callback();
+              });
             });
           });
         }
@@ -161,66 +167,21 @@ module.exports = function (kibana) {
     }); // end: server.register
 
     //Restrict access to indexes based on CF org membership.
-    //FIXME:  This technique doesn't seem to allow us to modify the request payload.  There must be a better way...
-    server.ext('onRequest', function (request, reply) {
+    server.ext('onPreHandler', function (request, reply) {
 
-        //server.log(['info', 'onPreHandler', 'request'], request);
-        // server.log(['info', 'onRequest', 'request.app'], request.app);
-        // server.log(['info', 'onRequest', 'request.path'], request.path);
+        //server.log(['info', 'onPreHandler', 'request.auth.credentials'], request.auth.credentials);
 
-        request.app.fullPayload = ""
-        request.app.restricted_index_errors = ""
-
-        if (/elasticsearch\/(_msearch|_mget)/.test(request.path)) {
-
-          request.on('peek', (chunk) => {
-              request.app.fullPayload += chunk.toString();
-          });
-
-          request.once('finish', () => {
-
-              //server.log(['info', 'onRequest', 'request'], request);
-              //server.log(['info', 'onRequest', 'request.query'], request.query);
-              //server.log(['info', 'onRequest', 'request.auth'], request.auth);
-              //server.log(['info', 'onRequest', 'request.auth.credentials.organizations'], request.auth.credentials.organizations);
-              //server.log(['info', 'onRequest', 'request.app.fullPayload'], request.app.fullPayload);
-
-              //restrict access to elasticsearch indexes to users who are not members of the system org
-              if (request.auth.credentials.organizations.indexOf('system') == -1) {
-                var lines = request.app.fullPayload.split('\n');
-                for(var i = 0; i < lines.length -1; i+=2){
-                   // server.log(['info', 'onRequest', 'lines['+i+']'], lines[i]);
-                   var indexes = JSON.parse(lines[i]).index;
-                   var query = JSON.parse(lines[i+1]);
-
-                   for(var j = 0;j < indexes.length; j++) {
-                     if (!/logs\-app.*/.test(indexes[j])) {
-                        request.app.restricted_index_errors += indexes[j] + " ";
-                     }
-                  }
-                }
-              }
-
-          });
-
+        if (/elasticsearch\/(_msearch|_mget)/.test(request.path) 
+            && request.auth.credentials 
+            && request.auth.credentials.spaceIds ) {
+          request.headers["X-Authorized-Orgs"] = request.auth.credentials.organizations.join(',');
+          request.headers["X-Authorized-SpaceIds"] = request.auth.credentials.spaceIds.join(',');
         }
 
         return reply.continue();
 
-    }); // end server.ext('onRequest'
-
-    server.ext('onPostHandler', function (request, reply) {
-        // server.log(['info', 'onPostHandler', 'request.app'], request.app);
-
-        if (request.app.restricted_index_errors !== "") {
-          return reply({
-            error: 'Only members of the system org are authorised to query index(s): ' + request.app.restricted_index_errors
-          }).code(401).takeover();
-        }
-
-        return reply.continue();
-
-    }); // end server.ext('onPostHandler'
+    });
+  
   }
 
   });
