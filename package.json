@@ -8,11 +8,6 @@
   },
   "dependencies": {
     "bluebird": "^2.9.30",
-    "elastic.js": "^1.2.0",
-    "elasticsearch": "^5.0.0",
-    "joi": "^6.4.3",
-    "lodash": "^3.9.3",
-    "wreck": "^5.6.0",
     "request": "^2.40.0",
     "bell": "5.4.0",
     "hapi-auth-cookie": "3.1.0"
