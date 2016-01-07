@@ -10,7 +10,8 @@
     "bluebird": "^2.9.30",
     "request": "^2.40.0",
     "bell": "5.4.0",
-    "hapi-auth-cookie": "3.1.0"
+    "hapi-auth-cookie": "3.1.0",
+    "uuid": "^2.0.1"
   },
   "devDependencies": {
     "grunt": "^0.4.5",

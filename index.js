@@ -2,6 +2,7 @@ var Bell = require('bell');
 var AuthCookie = require('hapi-auth-cookie');
 var Promise = require('bluebird');
 var request = Promise.promisify(require('request'));
+var uuid = require('uuid');
 
 module.exports = function (kibana) {
   return new kibana.Plugin({
@@ -55,6 +56,7 @@ module.exports = function (kibana) {
         account_info_uri: Joi.string().default(cf_info.token_endpoint + '/userinfo'),
         organizations_uri: Joi.string().default(cloudFoundryApiUri + '/v2/organizations'),
         spaces_uri: Joi.string().default(cloudFoundryApiUri + '/v2/spaces'),
+        random_passphrase: Joi.string().default(uuid.v4())
       }).default();
 
     }).catch(function (error) {
@@ -83,10 +85,25 @@ module.exports = function (kibana) {
         return;
       }
 
+      var cache = server.cache({ segment: 'sessions', expiresIn: 30 * 60 * 1000 });
+      server.app.cache = cache;
+
       server.auth.strategy('uaa-cookie', 'cookie', {
-        password: '397hkjhdhshs3uy02hjsdfnlskdfio3', //Password used for encryption
+        password: config.get('authentication.random_passphrase'), //Password used for encryption
         cookie: 'uaa-auth', // Name of cookie to set
-        redirectTo: '/login'
+        redirectTo: '/login',
+        validateFunc: function(request, session, callback) {
+          cache.get(session.session_id, function(err, cached) {
+            if (err) {
+              server.log(['error', 'session', 'validation'], JSON.stringify(err));
+              return callback(err, false);
+            }
+            if (!cached) {
+              return callback(null, false);
+            }
+            return callback(null, true, cached.credentials);
+          });
+        }
       });
 
       var uaaProvider = {
@@ -124,7 +141,7 @@ module.exports = function (kibana) {
 
       server.auth.strategy('uaa-oauth', 'bell', {
         provider: uaaProvider,
-        password: '397hkjhdhshs3uy02hjsdfnlskdfio3', //Password used for encryption
+        password: config.get('authentication.random_passphrase'), //Password used for encryption
         clientId: config.get('authentication.client_id'),
         clientSecret: config.get('authentication.client_secret'),
         forceHttps: true
@@ -139,10 +156,19 @@ module.exports = function (kibana) {
             auth: 'uaa-oauth',
             handler: function (request, reply) {
               if (request.auth.isAuthenticated) {
-                request.auth.session.set(request.auth.credentials);
-                return reply.redirect('/');
+                var credentials = request.auth.credentials;
+                credentials.session_id = uuid.v1();
+                request.server.app.cache.set(credentials.session_id, {credentials: credentials}, 0, function(err) {
+                  if (err) {
+                    server.log(['error', 'session', 'cache'], JSON.stringify(err));
+                    reply(err);
+                  }
+                  request.auth.session.set(credentials);
+                  return reply.redirect('/');
+                });
+              } else {
+                reply('Not logged in...').code(401);
               }
-              reply('Not logged in...').code(401);
             }
           }
         }, {
@@ -171,7 +197,6 @@ module.exports = function (kibana) {
               parse: false
             },
             handler: function(request, reply) {
-              server.log(['info', 'auth'], request.auth);
               var options = {
                 method: 'POST',
                 url: '/elasticsearch/_msearch'
