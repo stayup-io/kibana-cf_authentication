@@ -108,11 +108,13 @@ module.exports = function (kibana) {
 
             get(config.get('authentication.organizations_uri'), null, function(orgs) {
               server.log(['debug', 'authentication', 'orgs'], JSON.stringify(orgs));
-              credentials.organizations = orgs.resources.map(function(resource) { return resource.entity.name; });
+              credentials.orgIds = orgs.resources.map(function(resource) { return resource.metadata.guid; });
+              credentials.orgs = orgs.resources.map(function(resource) { return resource.entity.name; });
 
               get(config.get('authentication.spaces_uri'), null, function(spaces) {
-                server.log(['debug', 'authentication', 'orgs'], JSON.stringify(spaces));
+                server.log(['debug', 'authentication', 'spaces'], JSON.stringify(spaces));
                 credentials.spaceIds = spaces.resources.map(function(resource) { return resource.metadata.guid; });
+                credentials.spaces = spaces.resources.map(function(resource) { return resource.entity.name; });
                 return callback();
               });
             });
@@ -161,27 +163,69 @@ module.exports = function (kibana) {
               reply.redirect(config.get('authentication.logout_uri'));
             }
           }
+        }, {
+          method: 'POST',
+          path: '/_filtered_msearch',
+          config: {
+            payload: {
+              parse: false
+            },
+            handler: function(request, reply) {
+              server.log(['info', 'auth'], request.auth);
+              var options = {
+                method: 'POST',
+                url: '/elasticsearch/_msearch'
+              };
+              var modified_payload = [];
+              var lines = request.payload.toString().split('\n');
+              var num_lines = lines.length;
+              for (var i = 0; i < num_lines - 1; i+=2) {
+                var indexes = lines[i];
+                var query = JSON.parse(lines[i+1]);
+                query.query.filtered.filter.bool.filter = [
+                  {
+                    "terms": {
+                      "@source.space.id": request.auth.credentials.spaceIds
+                    }
+                  },{
+                    "terms": {
+                      "@source.org.id": request.auth.credentials.orgIds
+                    }
+                  }
+                ];
+                modified_payload.push(indexes);
+                modified_payload.push(JSON.stringify(query));
+              }
+              options.payload = new Buffer(modified_payload.join('\n') + '\n');
+              options.headers = request.headers;
+              delete options.headers.host;
+              delete options.headers['user-agent'];
+              delete options.headers['accept-encoding'];
+              options.headers['content-length'] = options.payload.length;
+              server.inject(options, (resp) => {
+                reply(resp.result || resp.payload)
+                  .code(resp.statusCode)
+                  .type(resp.headers['content-type'])
+                  .passThrough(true);
+              });
+            }
+          }
         }
-    ]);
+      ]);
 
     }); // end: server.register
 
-    //Restrict access to indexes based on CF org membership.
-    server.ext('onPreHandler', function (request, reply) {
+    // Redirect _msearch through our own route so we can modify the payload
+    server.ext('onRequest', function (request, reply) {
+      if (/elasticsearch\/_msearch/.test(request.path) && !request.headers.cf_filtered) {
+        request.setUrl('/_filtered_msearch');
+        request.headers.cf_filtered = true;
+      }
+      return reply.continue();
 
-        //server.log(['info', 'onPreHandler', 'request.auth.credentials'], request.auth.credentials);
+    }); // end server.ext('onRequest'
 
-        if (/elasticsearch\/(_msearch|_mget)/.test(request.path) 
-            && request.auth.credentials 
-            && request.auth.credentials.spaceIds ) {
-          request.headers["X-Authorized-Orgs"] = request.auth.credentials.organizations.join(',');
-          request.headers["X-Authorized-SpaceIds"] = request.auth.credentials.spaceIds.join(',');
-        }
 
-        return reply.continue();
-
-    });
-  
   }
 
   });
