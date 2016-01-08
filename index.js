@@ -33,6 +33,7 @@ module.exports = function (kibana) {
     var client_secret = (process.env.KIBANA_OAUTH2_CLIENT_SECRET) ? process.env.KIBANA_OAUTH2_CLIENT_SECRET : 'client_secret';
     var client_scope = (process.env.KIBANA_OAUTH_CLIENT_SCOPE) ? process.env.KIBANA_OAUTH_CLIENT_SCOPE : '';
     var skip_ssl_validation = (process.env.SKIP_SSL_VALIDATION) ? (process.env.SKIP_SSL_VALIDATION.toLowerCase() === 'true') : false;
+    var cf_system_org = (process.env.CF_SYSTEM_ORG) ? process.env.CF_SYSTEM_ORG : 'system';
     var cloudFoundryApiUri = (process.env.CF_API_URI) ? process.env.CF_API_URI.replace(/\/$/, '') : 'unknown';
     var cfInfoUri = cloudFoundryApiUri + '/v2/info';
 
@@ -50,6 +51,7 @@ module.exports = function (kibana) {
         client_id: Joi.string().default(client_id),
         client_secret: Joi.string().default(client_secret),
         skip_ssl_validation: Joi.boolean().default(skip_ssl_validation),
+        cf_system_org: Joi.string().default(cf_system_org),
         authorization_uri: Joi.string().default(cf_info.authorization_endpoint + '/oauth/authorize'),
         logout_uri: Joi.string().default(cf_info.authorization_endpoint + '/logout.do'),
         token_uri: Joi.string().default(cf_info.token_endpoint + '/oauth/token'),
@@ -202,7 +204,7 @@ module.exports = function (kibana) {
                 url: '/elasticsearch/_msearch',
                 artifacts: true
               };
-              if (request.auth.credentials.orgs.indexOf('system') !== -1) {
+              if (request.auth.credentials.orgs.indexOf(config.get('authentication.cf_system_org')) !== -1) {
                 options.payload = request.payload;
               } else {
                 var modified_payload = [];
