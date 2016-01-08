@@ -199,7 +199,8 @@ module.exports = function (kibana) {
             handler: function(request, reply) {
               var options = {
                 method: 'POST',
-                url: '/elasticsearch/_msearch'
+                url: '/elasticsearch/_msearch',
+                artifacts: true
               };
               var modified_payload = [];
               var lines = request.payload.toString().split('\n');
@@ -242,9 +243,8 @@ module.exports = function (kibana) {
 
     // Redirect _msearch through our own route so we can modify the payload
     server.ext('onRequest', function (request, reply) {
-      if (/elasticsearch\/_msearch/.test(request.path) && !request.headers.cf_filtered) {
+      if (/elasticsearch\/_msearch/.test(request.path) && !request.auth.artifacts) {
         request.setUrl('/_filtered_msearch');
-        request.headers.cf_filtered = true;
       }
       return reply.continue();
 
