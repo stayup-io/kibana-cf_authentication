@@ -88,7 +88,6 @@ module.exports = function (kibana) {
       }
 
       var cache = server.cache({ segment: 'sessions', expiresIn: 30 * 60 * 1000 });
-      server.app.cache = cache;
 
       server.auth.strategy('uaa-cookie', 'cookie', {
         password: config.get('authentication.random_passphrase'), //Password used for encryption
@@ -97,7 +96,7 @@ module.exports = function (kibana) {
         validateFunc: function(request, session, callback) {
           cache.get(session.session_id, function(err, cached) {
             if (err) {
-              server.log(['error', 'session', 'validation'], JSON.stringify(err));
+              server.log(['error', 'authentication', 'session:validation'], JSON.stringify(err));
               return callback(err, false);
             }
             if (!cached) {
@@ -115,9 +114,11 @@ module.exports = function (kibana) {
         scope: ['openid', 'oauth.approvals', 'scim.userids', 'cloud_controller.read'],
         profile: function (credentials, params, get, callback) {
           server.log(['debug', 'authentication'],  JSON.stringify({ thecredentials: credentials, theparams: params }));
+          var account = {};
+          credentials.session_id = uuid.v1();
           get(config.get('authentication.account_info_uri'), null, function (profile) {
             server.log(['debug', 'authentication'], JSON.stringify({ theprofile: profile }));
-            credentials.profile = {
+            account.profile = {
               id: profile.id,
               username: profile.username,
               displayName: profile.name,
@@ -127,14 +128,19 @@ module.exports = function (kibana) {
 
             get(config.get('authentication.organizations_uri'), null, function(orgs) {
               server.log(['debug', 'authentication', 'orgs'], JSON.stringify(orgs));
-              credentials.orgIds = orgs.resources.map(function(resource) { return resource.metadata.guid; });
-              credentials.orgs = orgs.resources.map(function(resource) { return resource.entity.name; });
+              account.orgIds = orgs.resources.map(function(resource) { return resource.metadata.guid; });
+              account.orgs = orgs.resources.map(function(resource) { return resource.entity.name; });
 
               get(config.get('authentication.spaces_uri'), null, function(spaces) {
                 server.log(['debug', 'authentication', 'spaces'], JSON.stringify(spaces));
-                credentials.spaceIds = spaces.resources.map(function(resource) { return resource.metadata.guid; });
-                credentials.spaces = spaces.resources.map(function(resource) { return resource.entity.name; });
-                return callback();
+                account.spaceIds = spaces.resources.map(function(resource) { return resource.metadata.guid; });
+                account.spaces = spaces.resources.map(function(resource) { return resource.entity.name; });
+                cache.set(credentials.session_id, {credentials: credentials, account: account}, 0, function(err) {
+                  if (err) {
+                    server.log(['error', 'authentication', 'session:set'], JSON.stringify(err));
+                  }
+                  return callback();
+                });
               });
             });
           });
@@ -158,19 +164,10 @@ module.exports = function (kibana) {
             auth: 'uaa-oauth',
             handler: function (request, reply) {
               if (request.auth.isAuthenticated) {
-                var credentials = request.auth.credentials;
-                credentials.session_id = uuid.v1();
-                request.server.app.cache.set(credentials.session_id, {credentials: credentials}, 0, function(err) {
-                  if (err) {
-                    server.log(['error', 'session', 'cache'], JSON.stringify(err));
-                    reply(err);
-                  }
-                  request.auth.session.set(credentials);
-                  return reply.redirect('/');
-                });
-              } else {
-                reply('Not logged in...').code(401);
+                request.auth.session.set(request.auth.credentials);
+                return reply.redirect('/');
               }
+              reply('Not logged in...').code(401);
             }
           }
         }, {
@@ -178,7 +175,12 @@ module.exports = function (kibana) {
           path: '/account',
           config: {
             handler: function (request, reply) {
-              reply(request.auth.credentials.profile);
+              cache.get(request.auth.credentials.session_id, function(err, cached) {
+                if (err) {
+                  server.log(['error', 'authentication', 'session:get:account'], JSON.stringify(err));
+                }
+                reply(cached.account.profile);
+              });
             }
           }
         }, {
@@ -204,41 +206,46 @@ module.exports = function (kibana) {
                 url: '/elasticsearch/_msearch',
                 artifacts: true
               };
-              if (request.auth.credentials.orgs.indexOf(config.get('authentication.cf_system_org')) !== -1) {
-                options.payload = request.payload;
-              } else {
-                var modified_payload = [];
-                var lines = request.payload.toString().split('\n');
-                var num_lines = lines.length;
-                for (var i = 0; i < num_lines - 1; i+=2) {
-                  var indexes = lines[i];
-                  var query = JSON.parse(lines[i+1]);
-                  query.query.filtered.filter.bool.filter = [
-                    {
-                      "terms": {
-                        "@source.space.id": request.auth.credentials.spaceIds
-                      }
-                    },{
-                      "terms": {
-                        "@source.org.id": request.auth.credentials.orgIds
-                      }
-                    }
-                  ];
-                  modified_payload.push(indexes);
-                  modified_payload.push(JSON.stringify(query));
+              cache.get(request.auth.credentials.session_id, function(err, cached) {
+                if (err) {
+                  server.log(['error', 'authentication', 'session:get:_filtered_msearch'], JSON.stringify(err));
                 }
-                options.payload = new Buffer(modified_payload.join('\n') + '\n');
-              }
-              options.headers = request.headers;
-              delete options.headers.host;
-              delete options.headers['user-agent'];
-              delete options.headers['accept-encoding'];
-              options.headers['content-length'] = options.payload.length;
-              server.inject(options, (resp) => {
-                reply(resp.result || resp.payload)
-                  .code(resp.statusCode)
-                  .type(resp.headers['content-type'])
-                  .passThrough(true);
+                if (cached.account.orgs.indexOf(config.get('authentication.cf_system_org')) !== -1) {
+                  options.payload = request.payload;
+                } else {
+                  var modified_payload = [];
+                  var lines = request.payload.toString().split('\n');
+                  var num_lines = lines.length;
+                  for (var i = 0; i < num_lines - 1; i+=2) {
+                    var indexes = lines[i];
+                    var query = JSON.parse(lines[i+1]);
+                    query.query.filtered.filter.bool.filter = [
+                      {
+                        "terms": {
+                          "@source.space.id": cached.account.spaceIds
+                        }
+                      },{
+                        "terms": {
+                          "@source.org.id": cached.account.orgIds
+                        }
+                      }
+                    ];
+                    modified_payload.push(indexes);
+                    modified_payload.push(JSON.stringify(query));
+                  }
+                  options.payload = new Buffer(modified_payload.join('\n') + '\n');
+                }
+                options.headers = request.headers;
+                delete options.headers.host;
+                delete options.headers['user-agent'];
+                delete options.headers['accept-encoding'];
+                options.headers['content-length'] = options.payload.length;
+                server.inject(options, (resp) => {
+                  reply(resp.result || resp.payload)
+                    .code(resp.statusCode)
+                    .type(resp.headers['content-type'])
+                    .passThrough(true);
+                });
               });
             }
           }
