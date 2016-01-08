@@ -202,27 +202,31 @@ module.exports = function (kibana) {
                 url: '/elasticsearch/_msearch',
                 artifacts: true
               };
-              var modified_payload = [];
-              var lines = request.payload.toString().split('\n');
-              var num_lines = lines.length;
-              for (var i = 0; i < num_lines - 1; i+=2) {
-                var indexes = lines[i];
-                var query = JSON.parse(lines[i+1]);
-                query.query.filtered.filter.bool.filter = [
-                  {
-                    "terms": {
-                      "@source.space.id": request.auth.credentials.spaceIds
+              if (request.auth.credentials.orgs.indexOf('system') !== -1) {
+                options.payload = request.payload;
+              } else {
+                var modified_payload = [];
+                var lines = request.payload.toString().split('\n');
+                var num_lines = lines.length;
+                for (var i = 0; i < num_lines - 1; i+=2) {
+                  var indexes = lines[i];
+                  var query = JSON.parse(lines[i+1]);
+                  query.query.filtered.filter.bool.filter = [
+                    {
+                      "terms": {
+                        "@source.space.id": request.auth.credentials.spaceIds
+                      }
+                    },{
+                      "terms": {
+                        "@source.org.id": request.auth.credentials.orgIds
+                      }
                     }
-                  },{
-                    "terms": {
-                      "@source.org.id": request.auth.credentials.orgIds
-                    }
-                  }
-                ];
-                modified_payload.push(indexes);
-                modified_payload.push(JSON.stringify(query));
+                  ];
+                  modified_payload.push(indexes);
+                  modified_payload.push(JSON.stringify(query));
+                }
+                options.payload = new Buffer(modified_payload.join('\n') + '\n');
               }
-              options.payload = new Buffer(modified_payload.join('\n') + '\n');
               options.headers = request.headers;
               delete options.headers.host;
               delete options.headers['user-agent'];
