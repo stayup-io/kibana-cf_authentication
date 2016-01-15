@@ -35,6 +35,9 @@ module.exports = function (kibana) {
     var skip_ssl_validation = (process.env.SKIP_SSL_VALIDATION) ? (process.env.SKIP_SSL_VALIDATION.toLowerCase() === 'true') : false;
     var cf_system_org = (process.env.CF_SYSTEM_ORG) ? process.env.CF_SYSTEM_ORG : 'system';
     var cloudFoundryApiUri = (process.env.CF_API_URI) ? process.env.CF_API_URI.replace(/\/$/, '') : 'unknown';
+    var use_redis_sessions = (process.env.REDIS_HOST) ? true : false;
+    var redis_host = (process.env.REDIS_HOST) ? process.env.REDIS_HOST : '127.0.0.1';
+    var redis_port = (process.env.REDIS_PORT) ? process.env.REDIS_PORT : '6379';
     var cfInfoUri = cloudFoundryApiUri + '/v2/info';
 
     if (skip_ssl_validation) {
@@ -58,7 +61,10 @@ module.exports = function (kibana) {
         account_info_uri: Joi.string().default(cf_info.token_endpoint + '/userinfo'),
         organizations_uri: Joi.string().default(cloudFoundryApiUri + '/v2/organizations'),
         spaces_uri: Joi.string().default(cloudFoundryApiUri + '/v2/spaces'),
-        random_passphrase: Joi.string().default(uuid.v4())
+        random_passphrase: Joi.string().default(client_secret.split('').reverse().join('')),
+        use_redis_sessions: Joi.boolean().default(use_redis_sessions),
+        redis_host: Joi.string().default(redis_host),
+        redis_port: Joi.string().default(redis_port)
       }).default();
 
     }).catch(function (error) {
@@ -77,6 +83,7 @@ module.exports = function (kibana) {
   */
   init: function (server, options) {
     var config = server.config();
+    var isSecure = process.env.NODE_ENV !== 'development';
 
     server.log(['debug', 'authentication'], JSON.stringify(config.get('authentication')));
 
@@ -87,7 +94,31 @@ module.exports = function (kibana) {
         return;
       }
 
-      var cache = server.cache({ segment: 'sessions', expiresIn: 30 * 60 * 1000 });
+      // Setup the cache for session data
+      var cache_expiration = 30 * 60 * 1000; // 30 minutes
+      var cache_segment = 'sessions';
+      // Default to memory cache
+      var cache = server.cache({
+        segment: cache_segment,
+        expiresIn: cache_expiration
+      });
+      // If possible, use redis for cache. Requires REDIS_HOST defined in environment
+      if (config.get('authentication.use_redis_sessions')) {
+        var policy = { expiresIn: cache_expiration };
+        var options = {
+          host: config.get('authentication.redis_host'),
+          port: config.get('authentication.redis_port'),
+          partition: 'kibana'
+        };
+        var Catbox = require('catbox');
+        var client = new Catbox.Client(require('catbox-redis'), options);
+        client.start(function(err) {
+          if (err) {
+            server.log(['err', 'cache', 'redis'], err);
+          }
+          cache = new Catbox.Policy(policy, client, cache_segment)
+        });
+      }
 
       server.auth.strategy('uaa-cookie', 'cookie', {
         password: config.get('authentication.random_passphrase'), //Password used for encryption
@@ -104,7 +135,8 @@ module.exports = function (kibana) {
             }
             return callback(null, true, cached.credentials);
           });
-        }
+        },
+        isSecure: isSecure
       });
 
       var uaaProvider = {
@@ -152,7 +184,8 @@ module.exports = function (kibana) {
         password: config.get('authentication.random_passphrase'), //Password used for encryption
         clientId: config.get('authentication.client_id'),
         clientSecret: config.get('authentication.client_secret'),
-        forceHttps: true
+        forceHttps: isSecure,
+        isSecure: isSecure
       });
 
       server.auth.default('uaa-cookie');
