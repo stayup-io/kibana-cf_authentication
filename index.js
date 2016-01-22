@@ -32,6 +32,7 @@ module.exports = function (kibana) {
     var client_secret = (process.env.KIBANA_OAUTH2_CLIENT_SECRET) ? process.env.KIBANA_OAUTH2_CLIENT_SECRET : 'client_secret';
     var client_scope = (process.env.KIBANA_OAUTH_CLIENT_SCOPE) ? process.env.KIBANA_OAUTH_CLIENT_SCOPE : '';
     var skip_ssl_validation = (process.env.SKIP_SSL_VALIDATION) ? (process.env.SKIP_SSL_VALIDATION.toLowerCase() === 'true') : false;
+    var cloudFoundryApiUri = (process.env.CF_API_URI) ? process.env.CF_API_URI.replace(/\/$/, '') : 'unknown';
     var cfInfoUri = cloudFoundryApiUri + '/v2/info';
 
     if (skip_ssl_validation) {
